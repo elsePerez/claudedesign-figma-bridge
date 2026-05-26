@@ -47,3 +47,16 @@ export type {
   ReconcileOptions,
   ReconciliationResult,
 } from "./token-resolver/index.js";
+
+export {
+  buildIntent,
+  buildIntentFromBundle,
+} from "./intent-builder/index.js";
+
+export type {
+  IntentArtboard,
+  IntentNode,
+  IntentValue,
+  IntentDriftEntry,
+  IntentOrphanEntry,
+} from "./intent-builder/index.js";
