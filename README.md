@@ -53,6 +53,26 @@ pnpm install
 pnpm test           # 89 tests, ~3s
 ```
 
+### Slash commands (Claude Code)
+
+The repo ships three project-local slash commands in `.claude/commands/`.
+Run Claude Code from the repo root and use:
+
+```
+/cdf-clone                # build every Artboard from the configured bundle into _staging
+/cdf-screen ScreenEmpty   # build a single screen (the daily-driver command)
+/cdf-review               # READ-ONLY: diff every tracked screen vs the bundle
+/cdf-review ScreenEmpty   # review just one screen
+```
+
+**Setup:**
+
+1. Copy `cdf.config.example.json` to `cdf.config.json` (gitignored).
+2. Fill in the absolute paths for your bundle + the Figma file key + the staging page node id.
+3. The first invocation will guide you through any missing pieces.
+
+The commands wire together the CLI (`cdf parse/plan/emit/render`), the Figma MCP (`use_figma`, `get_metadata`, `get_screenshot`), and the snapshot store. Each command's full instructions live in its markdown file under `.claude/commands/`.
+
 ### CLI
 
 ```bash
