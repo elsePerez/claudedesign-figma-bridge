@@ -1,0 +1,235 @@
+/* =========================================================
+   Stoqio Design System — Tokens
+   Colors + Typography + Spacing + Radius
+   Source of truth: elsePerez/Stoqio @ Libraries/StoqioDesignSystem
+   ========================================================= */
+
+/* Urbanist — self-hosted brand fonts */
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Thin.ttf')             format('truetype'); font-weight: 100; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-ThinItalic.ttf')       format('truetype'); font-weight: 100; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-ExtraLight.ttf')       format('truetype'); font-weight: 200; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-ExtraLightItalic.ttf') format('truetype'); font-weight: 200; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Light.ttf')            format('truetype'); font-weight: 300; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-LightItalic.ttf')      format('truetype'); font-weight: 300; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Regular.ttf')          format('truetype'); font-weight: 400; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Italic.ttf')           format('truetype'); font-weight: 400; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Medium.ttf')           format('truetype'); font-weight: 500; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-MediumItalic.ttf')     format('truetype'); font-weight: 500; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-SemiBold.ttf')         format('truetype'); font-weight: 600; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-SemiBoldItalic.ttf')   format('truetype'); font-weight: 600; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Bold.ttf')             format('truetype'); font-weight: 700; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-BoldItalic.ttf')       format('truetype'); font-weight: 700; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-ExtraBold.ttf')        format('truetype'); font-weight: 800; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-ExtraBoldItalic.ttf')  format('truetype'); font-weight: 800; font-style: italic;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-Black.ttf')            format('truetype'); font-weight: 900; font-style: normal;  font-display: swap; }
+@font-face { font-family: 'Urbanist'; src: url('fonts/Urbanist-BlackItalic.ttf')      format('truetype'); font-weight: 900; font-style: italic;  font-display: swap; }
+
+:root {
+  /* ------- Brand ------- */
+  --stoqio-primary:            #F54844;
+  --stoqio-on-primary:         #FFFFFF;
+  --stoqio-primary-container:  #FCECEA;
+  --stoqio-on-primary-container:#C43A3B;
+
+  /* ------- Background / Surface (LIGHT is default root) ------- */
+  --background:          #FFFFFF;
+  --background-secondary:#FAFAFA;
+  --surface:             #F5F5F5;
+  --surface-variant:     #EEEEEE;
+
+  /* ------- On-colors ------- */
+  --on-background:       #212121;
+  --on-surface:          #212121;
+  --on-surface-variant:  #757575;
+
+  /* ------- Outline ------- */
+  --outline:         #E0E0E0;
+  --outline-variant: #BDBDBD;
+
+  /* ------- Success ------- */
+  --success:           #12D18E;
+  --on-success:        #FFFFFF;
+  --success-container: #E8FAF4;
+
+  /* ------- Warning ------- */
+  --warning:           #FF9800;
+  --on-warning:        #FFFFFF;
+  --warning-container: #FFF3E0;
+
+  /* ------- Error ------- */
+  --error:           #F75555;
+  --on-error:        #FFFFFF;
+  --error-container: #FCECEA;
+
+  /* ------- Product card overlay (fixed, not theme-flipped) ------- */
+  --card-protection-gradient: linear-gradient(
+    to bottom,
+    rgba(20,26,31,0) 0%,
+    rgba(20,26,31,0.75) 50%,
+    rgba(20,26,31,0.95) 100%
+  );
+
+  /* ------- Spacing ------- */
+  --space-xs:   4px;
+  --space-sm:   8px;
+  --space-md:   12px;
+  --space-lg:   16px;
+  --space-xl:   20px;
+  --space-xxl:  24px;
+  --space-xxxl: 32px;
+
+  /* ------- Radius ------- */
+  --radius-sm:    8px;
+  --radius-md:    12px;
+  --radius-lg:    20px;
+  --radius-xl:    24px;
+  --radius-sheet: 28px;
+  --radius-full:  9999px;
+
+  /* ------- Shadow ------- */
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-sheet:0 4px 4px rgba(0,0,0,0.25);
+
+  /* ------- Typography ------- */
+  --font-sans: 'Urbanist', -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+
+  /* Raw sizes (sp) */
+  --fs-display-lg: 57px;
+  --fs-display-md: 45px;
+  --fs-headline-lg:32px;
+  --fs-headline-md:28px;
+  --fs-headline-sm:24px;
+  --fs-title-lg:   22px;
+  --fs-title-md:   18px;
+  --fs-title-sm:   16px;
+  --fs-body-lg:    16px;
+  --fs-body-md:    14px;
+  --fs-body-sm:    12px;
+  --fs-label-lg:   14px;
+  --fs-label-md:   12px;
+  --fs-label-sm:   11px;
+}
+
+/* =========================================================
+   Dark theme — applied via [data-theme="dark"] on any ancestor
+   ========================================================= */
+[data-theme="dark"] {
+  --stoqio-primary:            #F54844;
+  --stoqio-on-primary:         #FFFFFF;
+  --stoqio-primary-container:  #2D0808;
+  --stoqio-on-primary-container:#FDD9DB;
+
+  --background:          #181A20;
+  --background-secondary:#1F212A;
+  --surface:             #1F212A;
+  --surface-variant:     #262B35;
+
+  --on-background:       #FAFAFA;
+  --on-surface:          #FAFAFA;
+  --on-surface-variant:  #9E9E9E;
+
+  --outline:         #36383F;
+  --outline-variant: #36383F;
+
+  --success-container: #0F2D24;
+  --warning-container: #1A1000;
+  --error-container:   #2D0A0A;
+
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.35);
+}
+
+/* =========================================================
+   Base
+   ========================================================= */
+html, body {
+  font-family: var(--font-sans);
+  color: var(--on-background);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+
+/* =========================================================
+   Semantic type classes (Material 3 scale, Urbanist)
+   ========================================================= */
+.display-lg { font: 400 var(--fs-display-lg)/1 var(--font-sans); letter-spacing: -0.25px; }
+.display-md { font: 400 var(--fs-display-md)/1 var(--font-sans); letter-spacing: 0; }
+
+.headline-lg { font: 600 var(--fs-headline-lg)/1 var(--font-sans); letter-spacing: 0; }
+.headline-md { font: 600 var(--fs-headline-md)/1 var(--font-sans); letter-spacing: 0; }
+.headline-sm { font: 600 var(--fs-headline-sm)/1 var(--font-sans); letter-spacing: 0; }
+
+.title-lg { font: 700 var(--fs-title-lg)/1 var(--font-sans); letter-spacing: 0; }
+.title-md { font: 700 var(--fs-title-md)/1 var(--font-sans); letter-spacing: 0.15px; }
+.title-sm { font: 500 var(--fs-title-sm)/1 var(--font-sans); letter-spacing: 0.1px; }
+
+.body-lg { font: 400 var(--fs-body-lg)/1.35 var(--font-sans); }
+.body-md { font: 400 var(--fs-body-md)/1.4 var(--font-sans); }
+.body-sm { font: 400 var(--fs-body-sm)/1.4 var(--font-sans); }
+
+.label-lg { font: 500 var(--fs-label-lg)/1 var(--font-sans); letter-spacing: 0.1px; }
+.label-md { font: 500 var(--fs-label-md)/1 var(--font-sans); letter-spacing: 0.5px; }
+.label-sm { font: 500 var(--fs-label-sm)/1 var(--font-sans); letter-spacing: 0.5px; }
+
+.eyebrow {
+  font: 700 var(--fs-label-sm)/1 var(--font-sans);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+/* =========================================================
+   Primitives
+   ========================================================= */
+.stoqio-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-sm);
+  height: 52px; padding: 0 var(--space-xxl);
+  border-radius: var(--radius-md);
+  background: var(--stoqio-primary);
+  color: var(--stoqio-on-primary);
+  font: 700 15px/1 var(--font-sans);
+  border: 0; cursor: pointer;
+  transition: opacity .15s ease-out, transform .15s ease-out;
+}
+.stoqio-btn:active { opacity: .85; transform: scale(.99); }
+.stoqio-btn--pill { border-radius: var(--radius-full); height: 44px; font-size: 13px; padding: 0 var(--space-xxl); }
+.stoqio-btn--secondary {
+  background: transparent; color: var(--on-surface);
+  border: 1.5px solid var(--outline);
+}
+
+.stoqio-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-lg);
+}
+
+.stoqio-chip {
+  display: inline-flex; align-items: center;
+  height: 32px; padding: 0 var(--space-md);
+  border-radius: var(--radius-full);
+  background: transparent;
+  border: 1px solid var(--outline);
+  color: var(--on-surface);
+  font: 500 13px/1 var(--font-sans);
+}
+.stoqio-chip[aria-pressed="true"] {
+  background: var(--stoqio-primary);
+  color: var(--stoqio-on-primary);
+  border-color: var(--stoqio-primary);
+}
+
+.stoqio-badge {
+  display: inline-flex; align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-full);
+  font: 500 12px/1 var(--font-sans);
+}
+.stoqio-badge--success { background: var(--success-container); color: var(--success); }
+.stoqio-badge--warning { background: var(--warning-container); color: var(--warning); }
+.stoqio-badge--error   { background: var(--error-container);   color: var(--error); }
+.stoqio-badge--neutral { background: var(--surface-variant);   color: var(--on-surface-variant); }
