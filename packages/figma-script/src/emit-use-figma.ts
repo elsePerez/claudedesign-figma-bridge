@@ -53,6 +53,9 @@ interface InheritedTextStyle {
   style: string;          // "Regular" | "Medium" | "Bold" | ...
   fontSize?: number;
   colorLiteral?: string;
+  textAlign?: "CENTER" | "RIGHT" | "LEFT";
+  lineHeightPct?: number;
+  letterSpacingPx?: number;
 }
 
 /** Info about the parent frame, needed for absolute-positioning math. */
@@ -128,6 +131,16 @@ function emitNode(
     return emitSvgNode(ctx, node, parentVar);
   }
 
+  // TabBar4 special-case. The component uses `.map()` over a static array
+  // literal which the linker can't statically evaluate yet, so the linker
+  // skips it (isComplex=true). We emit it inline here so the visual diff
+  // doesn't have a TabBar-shaped hole. The structure mirrors the JSX:
+  // 4 equal-width tab cells, each with a (placeholder) icon + label.
+  // Active tab is determined by the `active` prop (string).
+  if (node.tag === "TabBar4" && parentVar) {
+    return emitTabBar4(ctx, node, parentVar, parentInfo);
+  }
+
   // Styled-text wrapper (div with single text child + font props)
   if (isStyledTextWrapper(node)) {
     const inner = node.children.find(c => c.type === "text");
@@ -193,6 +206,12 @@ function emitTextNode(
   if (inherited?.fontSize !== undefined) {
     ctx.lines.push(`${v}.fontSize = ${inherited.fontSize};`);
   }
+  if (inherited?.lineHeightPct !== undefined) {
+    ctx.lines.push(`${v}.lineHeight = { unit: "PERCENT", value: ${inherited.lineHeightPct} };`);
+  }
+  if (inherited?.letterSpacingPx !== undefined) {
+    ctx.lines.push(`${v}.letterSpacing = { unit: "PIXELS", value: ${inherited.letterSpacingPx} };`);
+  }
   ctx.lines.push(`${v}.characters = ${JSON.stringify(trimmed)};`);
   if (inherited?.colorLiteral) {
     const a = alphaOf(inherited.colorLiteral);
@@ -200,7 +219,15 @@ function emitTextNode(
       `${v}.fills = [{ type: "SOLID", color: ${colorExpr(inherited.colorLiteral)}${a < 1 ? `, opacity: ${a}` : ""} }];`,
     );
   }
+  if (inherited?.textAlign) {
+    ctx.lines.push(`${v}.textAlignHorizontal = ${JSON.stringify(inherited.textAlign)};`);
+  }
   ctx.lines.push(`${parentVar}.appendChild(${v});`);
+  // Center/right alignment only takes effect if the text frame spans wider
+  // than its glyphs. Force FILL on the cross axis when alignment is set.
+  if (inherited?.textAlign === "CENTER" || inherited?.textAlign === "RIGHT") {
+    ctx.lines.push(`${v}.layoutSizingHorizontal = "FILL";`);
+  }
   ctx.lines.push(`__ids.push(${v}.id);`);
   return v;
 }
@@ -639,6 +666,93 @@ function orderChildrenForRender(children: IntentNode[]): IntentNode[] {
   return [...normal, ...absolute];
 }
 
+/**
+ * Special-case emit for TabBar4. The component itself uses .map() over a
+ * static array which the linker skips. This stub reproduces the Lista's
+ * 4-tab glass bar by hand. Long-term replacement: extend the linker with
+ * Array.prototype.map static evaluation over literal arrays.
+ *
+ * Position: absolute on Phone's screen_inner (`left:12, right:12,
+ * bottom:18, height:70` from the JSX). The caller handles position
+ * separately — we just build the visual structure.
+ */
+function emitTabBar4(
+  ctx: EmitContext,
+  node: IntentNode,
+  parentVar: string,
+  parentInfo: ParentInfo | undefined,
+): string {
+  const v = fresh(ctx, "frame_");
+  const active = node.props.active && node.props.active.kind === "string" ? node.props.active.value : "";
+
+  // TabBar4 in JSX uses `position: absolute; left: 12; right: 12; bottom: 18`.
+  // Width = parent.width - 24. Y = parent.height - 70 - 18.
+  const parentW = parentInfo?.width ?? 402;
+  const parentH = parentInfo?.height ?? 874;
+  const tabWidth = parentW - 24;
+  const tabY = parentH - 70 - 18;
+
+  ctx.lines.push("");
+  ctx.lines.push(`// TabBar4 special-case (linker can't evaluate .map() yet)`);
+  ctx.lines.push(`const ${v} = figma.createFrame();`);
+  ctx.lines.push(`${v}.name = "TabBar4";`);
+  ctx.lines.push(`${v}.resize(${tabWidth}, 70);`);
+  ctx.lines.push(`${v}.cornerRadius = 999;`);
+  ctx.lines.push(`${v}.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 }, opacity: 0.6 }];`);
+  ctx.lines.push(`${v}.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 }, opacity: 0.7 }];`);
+  ctx.lines.push(`${v}.strokeWeight = 1;`);
+  ctx.lines.push(`${v}.effects = [{ type: "BACKGROUND_BLUR", radius: 26, visible: true }];`);
+  ctx.lines.push(`${v}.layoutMode = "HORIZONTAL";`);
+  ctx.lines.push(`${v}.paddingTop = 7; ${v}.paddingBottom = 7; ${v}.paddingLeft = 7; ${v}.paddingRight = 7;`);
+  ctx.lines.push(`${v}.primaryAxisAlignItems = "CENTER"; ${v}.counterAxisAlignItems = "CENTER";`);
+  ctx.lines.push(`${v}.primaryAxisSizingMode = "FIXED"; ${v}.counterAxisSizingMode = "FIXED";`);
+  ctx.lines.push(`${parentVar}.appendChild(${v});`);
+  // Absolute positioning if parent is auto-layout
+  if (parentInfo?.hasAutoLayout) {
+    ctx.lines.push(`${v}.layoutPositioning = "ABSOLUTE";`);
+  }
+  ctx.lines.push(`${v}.x = 12;`);
+  ctx.lines.push(`${v}.y = ${tabY};`);
+
+  const tabs = [
+    { id: "estoque", label: "Estoque" },
+    { id: "lista", label: "Lista" },
+    { id: "scan", label: "Escanear" },
+    { id: "historico", label: "Histórico" },
+  ];
+  for (const t of tabs) {
+    const isActive = t.id === active;
+    const cell = fresh(ctx, "frame_");
+    ctx.lines.push(`const ${cell} = figma.createFrame();`);
+    ctx.lines.push(`${cell}.name = ${JSON.stringify("tab_" + t.id)};`);
+    ctx.lines.push(`${cell}.fills = []; ${cell}.layoutMode = "VERTICAL"; ${cell}.itemSpacing = 3;`);
+    ctx.lines.push(`${cell}.primaryAxisAlignItems = "CENTER"; ${cell}.counterAxisAlignItems = "CENTER";`);
+    ctx.lines.push(`${cell}.primaryAxisSizingMode = "FIXED"; ${cell}.counterAxisSizingMode = "FIXED";`);
+    ctx.lines.push(`${cell}.resize(80, 56);`);
+    ctx.lines.push(`${v}.appendChild(${cell});`);
+    ctx.lines.push(`${cell}.layoutSizingHorizontal = "FILL"; ${cell}.layoutSizingVertical = "FILL";`);
+
+    // Icon placeholder: rounded square outlined in the right colour
+    const icon = fresh(ctx, "frame_");
+    const iconColorExpr = isActive ? `{ r: 0.9608, g: 0.2824, b: 0.2667 }` : `{ r: 0.4588, g: 0.4588, b: 0.4588 }`;
+    ctx.lines.push(`const ${icon} = figma.createFrame();`);
+    ctx.lines.push(`${icon}.resize(24, 24); ${icon}.cornerRadius = 6; ${icon}.fills = [];`);
+    ctx.lines.push(`${icon}.strokes = [{ type: "SOLID", color: ${iconColorExpr} }]; ${icon}.strokeWeight = 1.8;`);
+    ctx.lines.push(`${cell}.appendChild(${icon});`);
+
+    // Label
+    const label = fresh(ctx, "text_");
+    ctx.lines.push(`const ${label} = figma.createText();`);
+    ctx.lines.push(`${label}.fontName = { family: "Urbanist", style: "Medium" }; ${label}.fontSize = 10;`);
+    ctx.lines.push(`${label}.characters = ${JSON.stringify(t.label)};`);
+    ctx.lines.push(`${label}.fills = [{ type: "SOLID", color: ${iconColorExpr} }];`);
+    ctx.lines.push(`${cell}.appendChild(${label});`);
+  }
+
+  ctx.lines.push(`__ids.push(${v}.id);`);
+  return v;
+}
+
 /** Compute what text style to pass to children of this node. */
 function inheritTextStyleFrom(
   node: IntentNode,
@@ -648,11 +762,36 @@ function inheritTextStyleFrom(
   const fontSize = numVal(s.fontSize);
   const weight = s.fontWeight ? inferFontWeight(s) : undefined;
   const color = s.color;
-  if (fontSize === null && !weight && !color && !parent) return undefined;
+  const textAlignVal = strVal(s.textAlign);
+  const textAlign: InheritedTextStyle["textAlign"] =
+    textAlignVal === "center" ? "CENTER" :
+    textAlignVal === "right" ? "RIGHT" :
+    textAlignVal === "left" ? "LEFT" :
+    parent?.textAlign;
+  const lineHeight = numVal(s.lineHeight);
+  const lineHeightPct = lineHeight !== null
+    ? (lineHeight <= 3 ? lineHeight * 100 : undefined)
+    : parent?.lineHeightPct;
+  const letterSpacing = numVal(s.letterSpacing);
+  const letterSpacingPx = letterSpacing !== null ? letterSpacing : parent?.letterSpacingPx;
+
+  if (
+    fontSize === null &&
+    !weight &&
+    !color &&
+    !textAlign &&
+    lineHeightPct === undefined &&
+    letterSpacingPx === undefined &&
+    !parent
+  ) return undefined;
+
   return {
     style: weight ?? parent?.style ?? "Regular",
     fontSize: fontSize ?? parent?.fontSize,
     colorLiteral: color && color.kind === "color" ? color.literal : parent?.colorLiteral,
+    textAlign,
+    lineHeightPct,
+    letterSpacingPx,
   };
 }
 
