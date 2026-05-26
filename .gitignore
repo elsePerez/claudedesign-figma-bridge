@@ -29,3 +29,7 @@ pnpm-debug.log*
 # tmp
 .tmp/
 tmp/
+
+# user-specific bridge config (paths to local bundle + Figma keys)
+cdf.config.json
+.figma-snapshot.json

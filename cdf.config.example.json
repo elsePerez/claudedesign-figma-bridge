@@ -1,0 +1,39 @@
+{
+  "$schema": "./cdf.config.schema.json",
+  "version": 1,
+
+  "bundle": {
+    "_comment": "Path to the ClaudeDesign bundle. The JSX file is the parse source.",
+    "path": "/absolute/path/to/your/claudedesign/bundle",
+    "jsxFile": "main-screen.jsx",
+    "htmlFile": "Main Screen.html"
+  },
+
+  "tokens": {
+    "_comment_css": "Path to colors_and_type.css if present in the bundle.",
+    "css": "/absolute/path/to/your/claudedesign/bundle/colors_and_type.css",
+    "_comment_swift": "Path to a .xcassets directory with *.colorset/Contents.json. Set to null if not using Swift tokens.",
+    "swiftColorsets": null
+  },
+
+  "figma": {
+    "_comment": "Figma file key (from URL /design/:fileKey/...) and the staging page node id (format `123:4`).",
+    "fileKey": "YOUR_FIGMA_FILE_KEY",
+    "stagingPageId": "0:0",
+    "_comment_canonical": "Optional: the canonical page where promoted frames live. Currently informational only.",
+    "canonicalPageId": null
+  },
+
+  "snapshot": ".figma-snapshot.json",
+
+  "fonts": {
+    "family": "Urbanist",
+    "weights": ["Regular", "Medium", "SemiBold", "Bold", "ExtraBold"]
+  },
+
+  "_usage": {
+    "step_1": "Copy this file to `cdf.config.json` (which is gitignored).",
+    "step_2": "Fill in the absolute paths for your bundle and the Figma file key + staging page id.",
+    "step_3": "Open Claude Code in this repo and run `/cdf-clone`, `/cdf-screen <Name>`, or `/cdf-review`."
+  }
+}
