@@ -166,6 +166,31 @@ function exprToPropValue(expr: t.Expression | t.JSXEmptyExpression): JsxPropValu
   if (t.isTemplateLiteral(expr) && expr.expressions.length === 0 && expr.quasis.length === 1) {
     return { kind: "string", value: expr.quasis[0]!.value.cooked ?? "" };
   }
+  if (t.isConditionalExpression(expr)) {
+    return {
+      kind: "ternary",
+      test: exprToPropValue(expr.test),
+      then: exprToPropValue(expr.consequent),
+      else: exprToPropValue(expr.alternate),
+    };
+  }
+  if (t.isLogicalExpression(expr)) {
+    return {
+      kind: "logical",
+      op: expr.operator as "&&" | "||" | "??",
+      left: exprToPropValue(expr.left),
+      right: exprToPropValue(expr.right),
+    };
+  }
+  if (t.isBinaryExpression(expr)) {
+    const left = t.isExpression(expr.left) ? exprToPropValue(expr.left) : { kind: "expression" as const, source: "?" };
+    return {
+      kind: "binary",
+      op: expr.operator,
+      left,
+      right: exprToPropValue(expr.right),
+    };
+  }
   if (t.isObjectExpression(expr)) {
     const out: Record<string, JsxPropValue> = {};
     for (const prop of expr.properties) {

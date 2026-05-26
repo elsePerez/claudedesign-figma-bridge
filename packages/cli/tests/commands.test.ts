@@ -61,7 +61,10 @@ describe("cdf plan + emit roundtrip", () => {
 
     const parsed = JSON.parse(intentJson);
     expect(parsed.schemaVersion).toBe(1);
-    expect(parsed.root.tag).toBe("Phone");
+    // With the linker enabled (CLI default), Phone is inlined and the root
+    // becomes the outer div from Phone's body (radius 50, black fill).
+    expect(parsed.root.tag).toBe("div");
+    expect(parsed.root.style.borderRadius).toEqual({ kind: "number", value: 50 });
 
     const script = runEmit({ intentPath, pageId: "6504:2" });
     expect(script).toContain("setCurrentPageAsync");

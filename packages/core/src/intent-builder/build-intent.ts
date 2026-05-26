@@ -120,6 +120,14 @@ function jsxValueToIntent(v: JsxPropValue, ctx: ResolveContext): IntentValue {
       }
       return { kind: "expression", source: v.source };
     }
+    case "ternary":
+    case "logical":
+    case "binary":
+      // Unevaluated control-flow expressions reach intent-build only when the
+      // linker couldn't fold them (missing prop bindings, dynamic conditions).
+      // Render as an inspection-friendly expression entry so downstream
+      // emitters can render a stub or skip without crashing.
+      return { kind: "expression", source: `<${v.kind}>` };
   }
 }
 

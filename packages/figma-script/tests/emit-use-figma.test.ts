@@ -12,12 +12,16 @@ const FX = path.resolve(
 );
 
 function screenEmptyIntent() {
+  // link: false preserves Phone as a named component frame so the
+  // pre-linker assertions still hold. Separate tests below exercise the
+  // linked path.
   return buildIntentFromBundle({
     jsxPath: path.join(FX, "lista-screen.jsx"),
     cssPath: path.join(FX, "bundle-colors-and-type.css"),
     swiftColorsetsDir: path.join(FX, "swift-colorsets"),
     screenName: "ScreenEmpty",
     label: "01 · Lista vazia (Padrão B)",
+    link: false,
   });
 }
 

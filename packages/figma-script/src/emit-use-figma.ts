@@ -1,42 +1,30 @@
-import type {
-  IntentArtboard,
-  IntentNode,
-  IntentValue,
-} from "@cdf/core";
-import { alphaOf, colorExpr, parsePadding } from "./auto-layout-rules.js";
+import type { IntentArtboard, IntentNode, IntentValue } from "@cdf/core";
+import {
+  alphaOf,
+  colorExpr,
+  parseBorder,
+  parseBoxShadow,
+  parsePadding,
+  normalizeJsxText,
+} from "./auto-layout-rules.js";
 
 export interface EmitUseFigmaOptions {
-  /** Page node id to target (e.g. "6504:2" for _staging). */
   pageId: string;
-  /** Font family used throughout the bundle. Default "Urbanist". */
   fontFamily?: string;
-  /** Weights to load. Default: Regular, Medium, SemiBold, Bold, ExtraBold. */
   fontWeights?: string[];
-  /** Origin (x,y) for the root frame on the page. Default (100, 100). */
   origin?: { x: number; y: number };
 }
 
 /**
- * Emit a JavaScript string ready to feed to the `use_figma` tool.
- *
- * The generated script:
- *   1. Switches to the target page (await setCurrentPageAsync)
- *   2. Loads all required font weights
- *   3. Defines helpers (hex parsing already inlined as object literals)
- *   4. Walks the IntentNode tree and emits createFrame / createText calls,
- *      respecting all the silent rules in auto-layout-rules.ts:
- *        - parent.appendChild(child) BEFORE child.layoutSizing{H,V} = 'FILL'
- *        - resize() BEFORE primaryAxisSizingMode setters
- *        - fonts loaded before createText
- *        - effects with visible:true + blendMode:'NORMAL'
- *   5. Returns the array of created node IDs
+ * IntentArtboard → use_figma JavaScript string. See auto-layout-rules.ts
+ * for the silent rules every generated script honors by construction.
  */
 export function emitUseFigma(intent: IntentArtboard, options: EmitUseFigmaOptions): string {
   const family = options.fontFamily ?? "Urbanist";
   const weights = options.fontWeights ?? ["Regular", "Medium", "SemiBold", "Bold", "ExtraBold"];
   const origin = options.origin ?? { x: 100, y: 100 };
 
-  const ctx: EmitContext = { idSeq: 0, lines: [], createdIds: [] };
+  const ctx: EmitContext = { idSeq: 0, lines: [], createdIds: [], fontFamily: family };
 
   emitHeader(ctx, options.pageId, family, weights);
   const rootVar = emitNode(ctx, intent.root, null, intent.size);
@@ -53,6 +41,32 @@ interface EmitContext {
   idSeq: number;
   lines: string[];
   createdIds: string[];
+  fontFamily: string;
+}
+
+/**
+ * Text styles to inherit down the tree. CSS text properties cascade in the
+ * browser (fontSize on a div applies to its text children). Figma has no
+ * inheritance, so we propagate explicitly.
+ */
+interface InheritedTextStyle {
+  style: string;          // "Regular" | "Medium" | "Bold" | ...
+  fontSize?: number;
+  colorLiteral?: string;
+}
+
+/** Info about the parent frame, needed for absolute-positioning math. */
+interface ParentInfo {
+  /** JS var name of the parent in the generated script. */
+  var: string;
+  /** Whether the parent has auto-layout set. */
+  hasAutoLayout: boolean;
+  /** Layout direction if hasAutoLayout — "VERTICAL" or "HORIZONTAL". */
+  layoutMode: "VERTICAL" | "HORIZONTAL" | null;
+  /** Known intrinsic width of the parent (if explicit), used to resolve `right`/`left:50%`. */
+  width: number | null;
+  /** Known intrinsic height (used to resolve `bottom`). */
+  height: number | null;
 }
 
 function fresh(ctx: EmitContext, prefix: string): string {
@@ -81,29 +95,36 @@ function emitFooter(ctx: EmitContext): void {
   ctx.lines.push(`return { createdNodeIds: __ids };`);
 }
 
-/**
- * Walk a single node. Returns the JS variable name holding the created node,
- * or null if the node didn't produce one (e.g. an unresolved expression).
- */
 function emitNode(
   ctx: EmitContext,
   node: IntentNode,
   parentVar: string | null,
   rootSize?: { width: number; height: number },
+  parentInfo?: ParentInfo,
+  inheritedTextStyle?: InheritedTextStyle,
 ): string | null {
   if (node.type === "text") {
-    return emitTextNode(ctx, node, parentVar);
+    return emitTextNode(ctx, node, parentVar, inheritedTextStyle);
   }
   if (node.type === "expression") {
-    return null; // unresolvable
+    return null;
   }
 
-  // Detect a "text-styled div" — a div with one text child and font styles.
+  // Skip Fragment wrappers — splice children directly into the parent
+  if (node.tag === "Fragment" && parentVar) {
+    for (const child of node.children) emitNode(ctx, child, parentVar, undefined, parentInfo);
+    return null;
+  }
+
+  // SVG: serialize the whole subtree as an SVG string and use createNodeFromSvg
+  if (node.tag === "svg") {
+    return emitSvgNode(ctx, node, parentVar);
+  }
+
+  // Styled-text wrapper (div with single text child + font props)
   if (isStyledTextWrapper(node)) {
     const inner = node.children.find(c => c.type === "text");
-    if (inner) {
-      return emitStyledText(ctx, node, inner, parentVar);
-    }
+    if (inner) return emitStyledText(ctx, node, inner, parentVar);
   }
 
   // Generic frame
@@ -114,29 +135,60 @@ function emitNode(
   ctx.lines.push(`${v}.name = ${JSON.stringify(node.tag)};`);
   ctx.createdIds.push(v);
 
-  applyFrameStyle(ctx, v, node, rootSize);
+  const sizing = applyFrameStyle(ctx, v, node, rootSize);
 
   if (parentVar) {
     ctx.lines.push(`${parentVar}.appendChild(${v});`);
-    applyPostAppend(ctx, v, node);
+    applyPostAppend(ctx, v, node, parentInfo, sizing.hasAutoLayout, sizing.layoutMode);
   }
 
-  // Children (recurse with this frame as the parent)
-  for (const child of node.children) {
-    if (child.type === "text" && !child.text?.trim()) continue;
-    emitNode(ctx, child, v);
+  // Build parentInfo for this node's children
+  const myParentInfo: ParentInfo = {
+    var: v,
+    hasAutoLayout: sizing.hasAutoLayout,
+    layoutMode: sizing.layoutMode,
+    width: sizing.width,
+    height: sizing.height,
+  };
+
+  // Z-order: emit absolute-positioned children LAST so they render on top.
+  // (Figma sibling order = render order; later siblings paint on top.)
+  // JSX z-index doesn't exist as a Figma concept, so we approximate it by
+  // partitioning children: non-absolute first, absolute last.
+  const orderedChildren = orderChildrenForRender(node.children);
+  const inheritedText = inheritTextStyleFrom(node, inheritedTextStyle);
+  for (const child of orderedChildren) {
+    if (child.type === "text" && !(child.text ?? "").trim()) continue;
+    emitNode(ctx, child, v, undefined, myParentInfo, inheritedText);
   }
 
   ctx.lines.push(`__ids.push(${v}.id);`);
   return v;
 }
 
-function emitTextNode(ctx: EmitContext, node: IntentNode, parentVar: string | null): string | null {
+function emitTextNode(
+  ctx: EmitContext,
+  node: IntentNode,
+  parentVar: string | null,
+  inherited?: InheritedTextStyle,
+): string | null {
   if (!parentVar) return null;
+  const trimmed = normalizeJsxText(node.text ?? "");
+  if (!trimmed) return null;
   const v = fresh(ctx, "text_");
+  const style = inherited?.style ?? "Regular";
   ctx.lines.push(`const ${v} = figma.createText();`);
-  ctx.lines.push(`${v}.fontName = { family: "Urbanist", style: "Regular" };`);
-  ctx.lines.push(`${v}.characters = ${JSON.stringify(node.text ?? "")};`);
+  ctx.lines.push(`${v}.fontName = { family: ${JSON.stringify(ctx.fontFamily)}, style: ${JSON.stringify(style)} };`);
+  if (inherited?.fontSize !== undefined) {
+    ctx.lines.push(`${v}.fontSize = ${inherited.fontSize};`);
+  }
+  ctx.lines.push(`${v}.characters = ${JSON.stringify(trimmed)};`);
+  if (inherited?.colorLiteral) {
+    const a = alphaOf(inherited.colorLiteral);
+    ctx.lines.push(
+      `${v}.fills = [{ type: "SOLID", color: ${colorExpr(inherited.colorLiteral)}${a < 1 ? `, opacity: ${a}` : ""} }];`,
+    );
+  }
   ctx.lines.push(`${parentVar}.appendChild(${v});`);
   ctx.lines.push(`__ids.push(${v}.id);`);
   return v;
@@ -151,20 +203,36 @@ function emitStyledText(
   if (!parentVar) return null;
   const v = fresh(ctx, "text_");
   const style = wrapper.style;
-  const family = "Urbanist";
   const weight = inferFontWeight(style);
   const fontSize = numVal(style.fontSize) ?? 14;
+  const trimmed = normalizeJsxText(text.text ?? "");
 
   ctx.lines.push("");
   ctx.lines.push(`// styled-text wrapper`);
   ctx.lines.push(`const ${v} = figma.createText();`);
-  ctx.lines.push(`${v}.fontName = { family: ${JSON.stringify(family)}, style: ${JSON.stringify(weight)} };`);
+  ctx.lines.push(`${v}.fontName = { family: ${JSON.stringify(ctx.fontFamily)}, style: ${JSON.stringify(weight)} };`);
   ctx.lines.push(`${v}.fontSize = ${fontSize};`);
-  ctx.lines.push(`${v}.characters = ${JSON.stringify(text.text ?? "")};`);
+  ctx.lines.push(`${v}.characters = ${JSON.stringify(trimmed)};`);
+
+  const lineHeight = numVal(style.lineHeight);
+  if (lineHeight !== null) {
+    if (lineHeight <= 3) {
+      // Treat <=3 as a multiplier (CSS line-height: 1.25), Figma uses PERCENT
+      ctx.lines.push(`${v}.lineHeight = { unit: "PERCENT", value: ${lineHeight * 100} };`);
+    } else {
+      ctx.lines.push(`${v}.lineHeight = { unit: "PIXELS", value: ${lineHeight} };`);
+    }
+  }
+
+  const letterSpacing = numVal(style.letterSpacing);
+  if (letterSpacing !== null) {
+    ctx.lines.push(`${v}.letterSpacing = { unit: "PIXELS", value: ${letterSpacing} };`);
+  }
 
   const colorVal = style.color;
   if (colorVal && colorVal.kind === "color") {
-    ctx.lines.push(`${v}.fills = [{ type: "SOLID", color: ${colorExpr(colorVal.literal)}${alphaOf(colorVal.literal) < 1 ? `, opacity: ${alphaOf(colorVal.literal)}` : ""} }];`);
+    const a = alphaOf(colorVal.literal);
+    ctx.lines.push(`${v}.fills = [{ type: "SOLID", color: ${colorExpr(colorVal.literal)}${a < 1 ? `, opacity: ${a}` : ""} }];`);
   }
   const textAlign = strVal(style.textAlign);
   if (textAlign === "center") ctx.lines.push(`${v}.textAlignHorizontal = "CENTER";`);
@@ -175,17 +243,76 @@ function emitStyledText(
   return v;
 }
 
+function emitSvgNode(ctx: EmitContext, node: IntentNode, parentVar: string | null): string | null {
+  if (!parentVar) return null;
+  const svg = jsxNodeToSvg(node);
+  const v = fresh(ctx, "svg_");
+  ctx.lines.push("");
+  ctx.lines.push(`// svg → createNodeFromSvg`);
+  ctx.lines.push(`const ${v} = figma.createNodeFromSvg(${JSON.stringify(svg)});`);
+  // Resize to expected dimensions if provided
+  const w = numVal(node.props.width);
+  const h = numVal(node.props.height);
+  if (w && h) ctx.lines.push(`${v}.resize(${w}, ${h});`);
+  ctx.lines.push(`${parentVar}.appendChild(${v});`);
+  ctx.lines.push(`__ids.push(${v}.id);`);
+  return v;
+}
+
+function jsxNodeToSvg(node: IntentNode): string {
+  if (node.type !== "element") return "";
+  const attrs = Object.entries(node.props)
+    .map(([k, v]) => attrToString(k, v))
+    .filter(s => s.length > 0)
+    .join(" ");
+  // Style attribute (rarely present in SVG within JSX, but cover the case)
+  const styleAttr = "";
+  const children = node.children
+    .filter(c => c.type === "element")
+    .map(c => jsxNodeToSvg(c))
+    .join("");
+  // Self-closing if no children
+  if (!children) {
+    return `<${node.tag}${attrs ? " " + attrs : ""}${styleAttr}/>`;
+  }
+  return `<${node.tag}${attrs ? " " + attrs : ""}${styleAttr}>${children}</${node.tag}>`;
+}
+
+function attrToString(name: string, value: IntentValue): string {
+  // Skip JSX-internal props
+  if (name === "key" || name === "ref") return "";
+  if (value.kind === "string") return `${name}="${escapeXml(value.value)}"`;
+  if (value.kind === "number") return `${name}="${value.value}"`;
+  if (value.kind === "boolean") return value.value ? name : "";
+  if (value.kind === "color") return `${name}="${escapeXml(value.literal)}"`;
+  // expression / object / array / null — skip
+  return "";
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function applyFrameStyle(
   ctx: EmitContext,
   v: string,
   node: IntentNode,
   rootSize?: { width: number; height: number },
-): void {
+): {
+  width: number | null;
+  height: number | null;
+  hasAutoLayout: boolean;
+  layoutMode: "VERTICAL" | "HORIZONTAL" | null;
+} {
   const s = node.style;
 
-  // Size (root gets rootSize; otherwise inferred from style)
-  const w = numVal(s.width) ?? rootSize?.width;
-  const h = numVal(s.height) ?? rootSize?.height;
+  // Size — root gets rootSize; otherwise infer from explicit style
+  const w = numVal(s.width) ?? rootSize?.width ?? null;
+  const h = numVal(s.height) ?? rootSize?.height ?? null;
   if (w && h) ctx.lines.push(`${v}.resize(${w}, ${h});`);
   else if (w) ctx.lines.push(`${v}.resize(${w}, ${v}.height || 1);`);
   else if (h) ctx.lines.push(`${v}.resize(${v}.width || 1, ${h});`);
@@ -198,14 +325,39 @@ function applyFrameStyle(
   const bg = s.background ?? s.backgroundColor;
   if (bg && bg.kind === "color") {
     const opacity = alphaOf(bg.literal);
-    const fillExpr =
+    const fill =
       opacity < 1
         ? `[{ type: "SOLID", color: ${colorExpr(bg.literal)}, opacity: ${opacity} }]`
         : `[{ type: "SOLID", color: ${colorExpr(bg.literal)} }]`;
-    ctx.lines.push(`${v}.fills = ${fillExpr};`);
-  } else {
-    // Frames default to white fill; null out if no style set
-    if (!bg) ctx.lines.push(`${v}.fills = [];`);
+    ctx.lines.push(`${v}.fills = ${fill};`);
+  } else if (!bg) {
+    ctx.lines.push(`${v}.fills = [];`);
+  }
+
+  // Border (`border: '1px solid #hex'`)
+  const border = strVal(s.border);
+  if (border) {
+    const parsed = parseBorder(border);
+    if (parsed) {
+      const op = parsed.opacity < 1 ? `, opacity: ${parsed.opacity}` : "";
+      ctx.lines.push(`${v}.strokes = [{ type: "SOLID", color: ${parsed.colorExpr}${op} }];`);
+      ctx.lines.push(`${v}.strokeWeight = ${parsed.width};`);
+    }
+  }
+
+  // Box-shadow → effects
+  const shadow = strVal(s.boxShadow);
+  if (shadow) {
+    const effects = parseBoxShadow(shadow);
+    if (effects.length > 0) {
+      const exprs = effects
+        .map(
+          e =>
+            `{ type: ${JSON.stringify(e.type)}, color: { ...${e.colorExpr}, a: ${e.alpha} }, offset: { x: ${e.offsetX}, y: ${e.offsetY} }, radius: ${e.radius}, spread: ${e.spread}, visible: true, blendMode: "NORMAL" }`,
+        )
+        .join(", ");
+      ctx.lines.push(`${v}.effects = [${exprs}];`);
+    }
   }
 
   // Padding
@@ -213,6 +365,16 @@ function applyFrameStyle(
   if (padding) {
     const p = parsePadding(padding);
     ctx.lines.push(`${v}.paddingTop = ${p.top}; ${v}.paddingRight = ${p.right}; ${v}.paddingBottom = ${p.bottom}; ${v}.paddingLeft = ${p.left};`);
+  } else {
+    // Per-side overrides
+    const pt = numVal(s.paddingTop);
+    const pr = numVal(s.paddingRight);
+    const pb = numVal(s.paddingBottom);
+    const pl = numVal(s.paddingLeft);
+    if (pt !== null) ctx.lines.push(`${v}.paddingTop = ${pt};`);
+    if (pr !== null) ctx.lines.push(`${v}.paddingRight = ${pr};`);
+    if (pb !== null) ctx.lines.push(`${v}.paddingBottom = ${pb};`);
+    if (pl !== null) ctx.lines.push(`${v}.paddingLeft = ${pl};`);
   }
 
   // Gap
@@ -222,41 +384,260 @@ function applyFrameStyle(
   // Layout mode
   const direction = strVal(s.flexDirection);
   const display = strVal(s.display);
+  let hasAutoLayout = false;
+  let layoutMode: "VERTICAL" | "HORIZONTAL" | null = null;
   if (direction === "column") {
     ctx.lines.push(`${v}.layoutMode = "VERTICAL";`);
-  } else if (direction === "row" || display === "flex") {
+    hasAutoLayout = true;
+    layoutMode = "VERTICAL";
+  } else if (direction === "row" || display === "flex" || display === "inline-flex") {
     ctx.lines.push(`${v}.layoutMode = "HORIZONTAL";`);
+    hasAutoLayout = true;
+    layoutMode = "HORIZONTAL";
+  } else if (shouldDefaultToVerticalStack(node)) {
+    // CSS block layout: a div with multiple element children stacks vertically.
+    // Without explicit flex, Figma frames don't stack — they'd overlap at (0,0).
+    // This heuristic gives us the default browser behavior for unstyled
+    // multi-child containers.
+    ctx.lines.push(`${v}.layoutMode = "VERTICAL";`);
+    hasAutoLayout = true;
+    layoutMode = "VERTICAL";
+  }
+
+  // When we have auto-layout AND explicit dimensions, pin axes to FIXED.
+  // Without this, the auto-layout will shrink to content (HUG) and explicit
+  // width/height passed via resize() are silently overridden.
+  if (hasAutoLayout && w && h) {
+    ctx.lines.push(`${v}.primaryAxisSizingMode = "FIXED";`);
+    ctx.lines.push(`${v}.counterAxisSizingMode = "FIXED";`);
   }
 
   // Alignment
   const justify = strVal(s.justifyContent);
   if (justify === "space-between") ctx.lines.push(`${v}.primaryAxisAlignItems = "SPACE_BETWEEN";`);
+  else if (justify === "space-around") ctx.lines.push(`${v}.primaryAxisAlignItems = "SPACE_AROUND";`);
   else if (justify === "center") ctx.lines.push(`${v}.primaryAxisAlignItems = "CENTER";`);
+  else if (justify === "flex-end") ctx.lines.push(`${v}.primaryAxisAlignItems = "MAX";`);
 
   const align = strVal(s.alignItems);
   if (align === "center") ctx.lines.push(`${v}.counterAxisAlignItems = "CENTER";`);
   else if (align === "flex-end") ctx.lines.push(`${v}.counterAxisAlignItems = "MAX";`);
+  else if (align === "baseline") ctx.lines.push(`${v}.counterAxisAlignItems = "BASELINE";`);
+
+  // overflow: hidden → clipsContent
+  if (strVal(s.overflow) === "hidden") {
+    ctx.lines.push(`${v}.clipsContent = true;`);
+  }
+
+  return { width: w, height: h, hasAutoLayout, layoutMode };
 }
 
-function applyPostAppend(ctx: EmitContext, v: string, node: IntentNode): void {
+function applyPostAppend(
+  ctx: EmitContext,
+  v: string,
+  node: IntentNode,
+  parentInfo: ParentInfo | undefined,
+  selfHasAutoLayout: boolean,
+  selfLayoutMode: "VERTICAL" | "HORIZONTAL" | null,
+): void {
   const s = node.style;
+  const position = strVal(s.position);
+
+  if (position === "absolute") {
+    if (parentInfo?.hasAutoLayout) {
+      ctx.lines.push(`${v}.layoutPositioning = "ABSOLUTE";`);
+    }
+    const pos = computeAbsolutePosition(s, parentInfo);
+    if (pos.x !== null) ctx.lines.push(`${v}.x = ${pos.x};`);
+    if (pos.y !== null) ctx.lines.push(`${v}.y = ${pos.y};`);
+    if (pos.width !== null && pos.height !== null) {
+      ctx.lines.push(`${v}.resize(${pos.width}, ${pos.height});`);
+    } else if (pos.width !== null) {
+      ctx.lines.push(`${v}.resize(${pos.width}, ${v}.height || 1);`);
+    }
+    // After explicit absolute resize on an auto-layout self, lock axes to FIXED
+    // so the layoutMode doesn't HUG the content and undo the resize.
+    if (selfHasAutoLayout) {
+      ctx.lines.push(`${v}.primaryAxisSizingMode = "FIXED";`);
+      ctx.lines.push(`${v}.counterAxisSizingMode = "FIXED";`);
+    }
+    return;
+  }
+
+  // Explicit flex/width/height overrides
   const flex = numVal(s.flex);
   if (flex && flex >= 1) {
     ctx.lines.push(`${v}.layoutGrow = ${flex};`);
   }
-  const width = strVal(s.width);
-  if (width === "100%") {
-    ctx.lines.push(`${v}.layoutSizingHorizontal = "FILL";`);
+  const widthStr = strVal(s.width);
+  const heightStr = strVal(s.height);
+  const hasExplicitWidth = numVal(s.width) !== null || widthStr !== null;
+  const hasExplicitHeight = numVal(s.height) !== null || heightStr !== null;
+  if (widthStr === "100%") ctx.lines.push(`${v}.layoutSizingHorizontal = "FILL";`);
+  if (heightStr === "100%") ctx.lines.push(`${v}.layoutSizingVertical = "FILL";`);
+
+  // CSS default `align-items: stretch` on auto-layout parent: cross-axis FILL
+  // when this child has no explicit cross-axis dimension. Only do this when
+  // we're not already overriding via layoutGrow or explicit dimensions.
+  if (parentInfo?.hasAutoLayout && !flex) {
+    if (parentInfo.layoutMode === "VERTICAL" && !hasExplicitWidth) {
+      ctx.lines.push(`${v}.layoutSizingHorizontal = "FILL";`);
+    } else if (parentInfo.layoutMode === "HORIZONTAL" && !hasExplicitHeight) {
+      ctx.lines.push(`${v}.layoutSizingVertical = "FILL";`);
+    }
   }
 }
 
+/**
+ * Resolve an `absolute` child's x/y/width/height relative to its parent.
+ * Supports the common idioms:
+ *   - inset: 0            → fill parent
+ *   - top: N, left: '50%', transform: 'translateX(-50%)' → top-center
+ *   - bottom: N, left: '50%', transform: 'translateX(-50%)' → bottom-center
+ *   - left: N, right: N   → width = parent.width - left - right
+ *   - bottom: N, top: N   → height = parent.height - top - bottom
+ */
+function computeAbsolutePosition(
+  s: IntentNode["style"],
+  parentInfo: ParentInfo | undefined,
+): { x: number | null; y: number | null; width: number | null; height: number | null } {
+  let x: number | null = null;
+  let y: number | null = null;
+  let width = numVal(s.width);
+  let height = numVal(s.height);
+
+  const top = numVal(s.top);
+  const bottom = numVal(s.bottom);
+  const left = numVal(s.left);
+  const right = numVal(s.right);
+  const inset = numVal(s.inset);
+  const leftStr = strVal(s.left);
+  const transform = strVal(s.transform);
+
+  const pW = parentInfo?.width ?? null;
+  const pH = parentInfo?.height ?? null;
+
+  if (inset !== null) {
+    x = inset;
+    y = inset;
+    if (pW !== null) width = width ?? pW - 2 * inset;
+    if (pH !== null) height = height ?? pH - 2 * inset;
+  }
+
+  if (top !== null) y = top;
+  if (left !== null) x = left;
+  if (right !== null && pW !== null && width !== null) x = pW - right - width;
+  if (right !== null && left === null && pW !== null && width === null) {
+    // both left and right missing — width spans parent minus right
+    width = pW - right - (x ?? 0);
+  }
+  if (left !== null && right !== null && pW !== null) {
+    width = pW - left - right;
+  }
+  if (bottom !== null && pH !== null && height !== null) {
+    y = pH - bottom - height;
+  }
+
+  // Centered horizontally via translateX(-50%)
+  if (leftStr === "50%" && /translateX\(-50%\)/.test(transform ?? "") && pW !== null && width !== null) {
+    x = (pW - width) / 2;
+  }
+
+  return { x, y, width, height };
+}
+
+/**
+ * A "styled-text wrapper" is a div/span/heading whose ONLY purpose is to
+ * style a single text node — font, color, alignment, line-height. If it
+ * also has structural properties (background, border, padding, sizing,
+ * shadow), it's a real container that happens to contain text. We collapse
+ * the first kind but preserve the second.
+ */
 function isStyledTextWrapper(node: IntentNode): boolean {
-  if (node.tag !== "div" && node.tag !== "span") return false;
-  if (Object.keys(node.style).length === 0) return false;
-  const textChildren = node.children.filter(c => c.type === "text" && (c.text ?? "").trim().length > 0);
+  if (
+    node.tag !== "div" &&
+    node.tag !== "span" &&
+    node.tag !== "h1" &&
+    node.tag !== "h2" &&
+    node.tag !== "h3"
+  )
+    return false;
+  const textChildren = node.children.filter(
+    c => c.type === "text" && normalizeJsxText(c.text ?? "").length > 0,
+  );
   if (textChildren.length !== 1) return false;
   const elementChildren = node.children.filter(c => c.type === "element");
-  return elementChildren.length === 0;
+  if (elementChildren.length !== 0) return false;
+  // If style declares any structural property, this is a container, not a wrapper.
+  const structural = [
+    "background",
+    "backgroundColor",
+    "border",
+    "borderRadius",
+    "padding",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+    "width",
+    "height",
+    "boxShadow",
+  ];
+  for (const k of structural) {
+    if (node.style[k] !== undefined) return false;
+  }
+  return true;
+}
+
+/**
+ * Heuristic: if a node is a `div` with 2+ element children and no explicit
+ * `display`/`flexDirection` style, treat it as a vertical block container.
+ *
+ * Exception — DO NOT auto-stack if any child uses `position: absolute`,
+ * since that signals the parent is meant to be a positioning context with
+ * absolutely-placed children (e.g. a phone shell with dynamic island +
+ * screen + home indicator). Forcing auto-layout would stack everything
+ * sequentially and break the design.
+ */
+function shouldDefaultToVerticalStack(node: IntentNode): boolean {
+  if (node.tag !== "div") return false;
+  const elementChildren = node.children.filter(c => c.type === "element");
+  if (elementChildren.length < 2) return false;
+  const anyAbsolute = elementChildren.some(c => {
+    const p = c.style.position;
+    return p && p.kind === "string" && p.value === "absolute";
+  });
+  if (anyAbsolute) return false;
+  return true;
+}
+
+/** Partition children: non-absolute first (in JSX order), then absolute (in JSX order). */
+function orderChildrenForRender(children: IntentNode[]): IntentNode[] {
+  const normal: IntentNode[] = [];
+  const absolute: IntentNode[] = [];
+  for (const c of children) {
+    const pos = c.style && c.style.position && c.style.position.kind === "string" ? c.style.position.value : null;
+    if (pos === "absolute") absolute.push(c);
+    else normal.push(c);
+  }
+  return [...normal, ...absolute];
+}
+
+/** Compute what text style to pass to children of this node. */
+function inheritTextStyleFrom(
+  node: IntentNode,
+  parent?: InheritedTextStyle,
+): InheritedTextStyle | undefined {
+  const s = node.style;
+  const fontSize = numVal(s.fontSize);
+  const weight = s.fontWeight ? inferFontWeight(s) : undefined;
+  const color = s.color;
+  if (fontSize === null && !weight && !color && !parent) return undefined;
+  return {
+    style: weight ?? parent?.style ?? "Regular",
+    fontSize: fontSize ?? parent?.fontSize,
+    colorLiteral: color && color.kind === "color" ? color.literal : parent?.colorLiteral,
+  };
 }
 
 function inferFontWeight(style: Record<string, IntentValue>): string {

@@ -73,3 +73,7 @@ export type {
   FigmaSnapshot,
   FigmaSnapshotEntry,
 } from "./snapshot/index.js";
+
+export { extractComponents, linkComponents } from "./linker/index.js";
+
+export type { ComponentDef, LinkOptions } from "./linker/index.js";

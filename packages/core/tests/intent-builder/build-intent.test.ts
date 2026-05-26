@@ -7,12 +7,15 @@ import type { IntentNode, IntentValue } from "../../src/intent-builder/index.js"
 const FX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
 function intent() {
+  // link: false → preserve Phone/StatusBar/etc as component references
+  // (the original Phase-3 tests were written before the linker landed)
   return buildIntentFromBundle({
     jsxPath: path.join(FX, "lista-screen.jsx"),
     cssPath: path.join(FX, "bundle-colors-and-type.css"),
     swiftColorsetsDir: path.join(FX, "swift-colorsets"),
     screenName: "ScreenEmpty",
     label: "01 · Lista vazia (Padrão B)",
+    link: false,
   });
 }
 

@@ -6,6 +6,7 @@ import {
   reconcile,
 } from "../token-resolver/index.js";
 import type { TokenSource } from "../token-resolver/index.js";
+import { extractComponents, linkComponents } from "../linker/index.js";
 import { buildIntent } from "./build-intent.js";
 import type { IntentArtboard } from "./types.js";
 
@@ -16,6 +17,11 @@ export interface BuildFromBundleOptions {
   size?: { width: number; height: number };
   cssPath?: string;
   swiftColorsetsDir?: string;
+  /**
+   * Inline custom-component references via the linker. Default true.
+   * Disable for debugging the un-linked tree.
+   */
+  link?: boolean;
 }
 
 /**
@@ -23,9 +29,14 @@ export interface BuildFromBundleOptions {
  * Useful for the CLI and tests.
  */
 export function buildIntentFromBundle(options: BuildFromBundleOptions): IntentArtboard {
-  const jsxTree = parseScreen(options.jsxPath, options.screenName);
+  let jsxTree = parseScreen(options.jsxPath, options.screenName);
   if (!jsxTree) {
     throw new Error(`Screen "${options.screenName}" not found in ${options.jsxPath}`);
+  }
+
+  if (options.link !== false) {
+    const components = extractComponents(options.jsxPath);
+    jsxTree = linkComponents(jsxTree, components);
   }
 
   const sources: TokenSource[] = [];

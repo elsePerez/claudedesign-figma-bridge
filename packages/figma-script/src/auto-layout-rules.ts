@@ -50,6 +50,14 @@ export function colorExpr(value: string): string {
     const b = parseInt(rgbaMatch[3]!, 10) / 255;
     return `{ r: ${r.toFixed(4)}, g: ${g.toFixed(4)}, b: ${b.toFixed(4)} }`;
   }
+  // linear-gradient(...): Figma's gradient API needs more machinery (transform
+  // matrix, stops). For v1 we fall back to the *first* color stop and emit
+  // that as a solid fill. Visual diff will flag it as drift; the user can
+  // promote to a proper gradient later.
+  if (/^linear-gradient\(/i.test(hex)) {
+    const firstHex = hex.match(/#([0-9a-fA-F]{6})\b/);
+    if (firstHex) return colorExpr(`#${firstHex[1]}`);
+  }
   return `{ r: 0, g: 0, b: 0 }`;
 }
 
@@ -77,4 +85,87 @@ export function parsePadding(value: string): {
     .map(n => (Number.isFinite(n) ? n : 0));
   const [a = 0, b = a, c = a, d = b] = parts;
   return { top: a, right: b, bottom: c, left: d };
+}
+
+/**
+ * Parse `border: 'Npx <style> #hex'` (CSS shorthand) into width + paint expr.
+ * Returns null if the value doesn't look like a border shorthand.
+ */
+export function parseBorder(value: string): { width: number; colorExpr: string; opacity: number } | null {
+  const v = value.trim();
+  // Width
+  const widthMatch = v.match(/^([\d.]+)px\b/);
+  if (!widthMatch) return null;
+  const width = parseFloat(widthMatch[1]!);
+  // Color (hex or rgba)
+  const hexMatch = v.match(/#[0-9a-fA-F]{3,8}\b/);
+  const rgbaMatch = v.match(/rgba?\([^)]+\)/i);
+  let colorStr: string | null = null;
+  if (rgbaMatch) colorStr = rgbaMatch[0];
+  else if (hexMatch) colorStr = hexMatch[0];
+  if (!colorStr) return null;
+  return { width, colorExpr: colorExpr(colorStr), opacity: alphaOf(colorStr) };
+}
+
+/**
+ * Parse `boxShadow: 'X Y BLUR [SPREAD] COLOR'` into a Figma effect entry.
+ * Supports a single shadow only — multiple shadows separated by commas
+ * are returned as an array.
+ *
+ * Returns an array of effect entries that can be assigned to `node.effects`.
+ */
+export function parseBoxShadow(value: string): Array<{
+  type: "DROP_SHADOW";
+  offsetX: number;
+  offsetY: number;
+  radius: number;
+  spread: number;
+  colorExpr: string;
+  alpha: number;
+}> {
+  const out: ReturnType<typeof parseBoxShadow> = [];
+  // Split on commas that aren't inside parens (rgba contains commas)
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of value) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+
+  for (const p of parts) {
+    const colorMatch = p.match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}\b/);
+    if (!colorMatch) continue;
+    const colorStr = colorMatch[0];
+    const numericPart = p.replace(colorStr, "").trim();
+    const nums = numericPart.split(/\s+/).map(n => parseFloat(n.replace(/px$/i, "")));
+    if (nums.length < 3) continue;
+    const [x = 0, y = 0, blur = 0, spread = 0] = nums;
+    out.push({
+      type: "DROP_SHADOW",
+      offsetX: x,
+      offsetY: y,
+      radius: blur,
+      spread,
+      colorExpr: colorExpr(colorStr),
+      alpha: alphaOf(colorStr),
+    });
+  }
+  return out;
+}
+
+/**
+ * Strip leading/trailing whitespace and collapse internal whitespace runs.
+ * JSX text nodes preserve source whitespace, which renders as ugly newlines
+ * inside text elements in Figma. This normalizes them like HTML does.
+ */
+export function normalizeJsxText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }

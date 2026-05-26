@@ -10,6 +10,27 @@ export type JsxPropValue =
   | { kind: "null" }
   | { kind: "object"; value: Record<string, JsxPropValue> }
   | { kind: "array"; value: JsxPropValue[] }
+  /** Conditional expression `test ? then : else` — partially evaluable in the linker. */
+  | {
+      kind: "ternary";
+      test: JsxPropValue;
+      then: JsxPropValue;
+      else: JsxPropValue;
+    }
+  /** Logical expression `left && right` / `left || right` / `left ?? right` */
+  | {
+      kind: "logical";
+      op: "&&" | "||" | "??";
+      left: JsxPropValue;
+      right: JsxPropValue;
+    }
+  /** Binary expression `left op right` (comparison + simple arithmetic) */
+  | {
+      kind: "binary";
+      op: string;
+      left: JsxPropValue;
+      right: JsxPropValue;
+    }
   /** Dynamic value we couldn't statically resolve. Holds the source for inspection. */
   | { kind: "expression"; source: string };
 
