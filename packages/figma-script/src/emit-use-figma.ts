@@ -120,6 +120,18 @@ function emitNode(
     return null;
   }
 
+  // CSS margins on a child inside an auto-layout parent. Figma frames have
+  // no margin property — the closest equivalent is a transparent spacer
+  // frame inserted into the parent's auto-layout flow.
+  // Emit a leading spacer for marginTop (vertical parent) or marginLeft
+  // (horizontal parent); a trailing one happens after the child is appended.
+  if (parentVar && parentInfo?.hasAutoLayout) {
+    const leadingMargin = leadingMarginPx(node.style, parentInfo.layoutMode);
+    if (leadingMargin > 0) {
+      emitSpacer(ctx, parentVar, leadingMargin, parentInfo.layoutMode);
+    }
+  }
+
   // Skip Fragment wrappers — splice children directly into the parent
   if (node.tag === "Fragment" && parentVar) {
     for (const child of node.children) emitNode(ctx, child, parentVar, undefined, parentInfo);
@@ -186,8 +198,69 @@ function emitNode(
     emitNode(ctx, child, v, undefined, myParentInfo, inheritedText);
   }
 
+  // Trailing margin (after the child + its subtree are committed)
+  if (parentVar && parentInfo?.hasAutoLayout) {
+    const trailingMargin = trailingMarginPx(node.style, parentInfo.layoutMode);
+    if (trailingMargin > 0) {
+      emitSpacer(ctx, parentVar, trailingMargin, parentInfo.layoutMode);
+    }
+  }
+
   ctx.lines.push(`__ids.push(${v}.id);`);
   return v;
+}
+
+/**
+ * Pull the leading-margin pixel value out of a node's style, given the
+ * auto-layout direction of its parent. Returns 0 if no relevant margin.
+ *
+ * Sources, in priority order:
+ *   - shorthand `margin` (top/right/bottom/left)
+ *   - `marginTop` / `marginLeft` (per-side)
+ */
+function leadingMarginPx(
+  style: IntentNode["style"],
+  layoutMode: "VERTICAL" | "HORIZONTAL" | null,
+): number {
+  const shorthand = strVal(style.margin);
+  if (shorthand) {
+    const p = parsePadding(shorthand);
+    return layoutMode === "HORIZONTAL" ? p.left : p.top;
+  }
+  if (layoutMode === "HORIZONTAL") return numVal(style.marginLeft) ?? 0;
+  return numVal(style.marginTop) ?? 0;
+}
+
+function trailingMarginPx(
+  style: IntentNode["style"],
+  layoutMode: "VERTICAL" | "HORIZONTAL" | null,
+): number {
+  const shorthand = strVal(style.margin);
+  if (shorthand) {
+    const p = parsePadding(shorthand);
+    return layoutMode === "HORIZONTAL" ? p.right : p.bottom;
+  }
+  if (layoutMode === "HORIZONTAL") return numVal(style.marginRight) ?? 0;
+  return numVal(style.marginBottom) ?? 0;
+}
+
+function emitSpacer(
+  ctx: EmitContext,
+  parentVar: string,
+  px: number,
+  layoutMode: "VERTICAL" | "HORIZONTAL" | null,
+): void {
+  const v = fresh(ctx, "spacer_");
+  if (layoutMode === "HORIZONTAL") {
+    ctx.lines.push(`const ${v} = figma.createFrame();`);
+    ctx.lines.push(`${v}.resize(${px}, 1); ${v}.fills = [];`);
+    ctx.lines.push(`${parentVar}.appendChild(${v});`);
+  } else {
+    ctx.lines.push(`const ${v} = figma.createFrame();`);
+    ctx.lines.push(`${v}.resize(1, ${px}); ${v}.fills = [];`);
+    ctx.lines.push(`${parentVar}.appendChild(${v});`);
+    ctx.lines.push(`${v}.layoutSizingHorizontal = "FILL";`);
+  }
 }
 
 function emitTextNode(
