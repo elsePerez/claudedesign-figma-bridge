@@ -60,3 +60,16 @@ export type {
   IntentDriftEntry,
   IntentOrphanEntry,
 } from "./intent-builder/index.js";
+
+export {
+  loadSnapshot,
+  saveSnapshot,
+  recordBuild,
+  recordVerify,
+  recordPromotion,
+} from "./snapshot/index.js";
+
+export type {
+  FigmaSnapshot,
+  FigmaSnapshotEntry,
+} from "./snapshot/index.js";

@@ -19,15 +19,23 @@
   },
   "packageManager": "pnpm@10.33.2",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc -b --noEmit",
-    "typecheck": "tsc -b --noEmit"
+    "lint": "tsc -b",
+    "typecheck": "tsc -b",
+    "clean": "tsc -b --clean"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.5",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "pixelmatch": "^5.3.0",
+    "pngjs": "^7.0.0"
   }
 }

@@ -1,6 +1,10 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/core" }
+    { "path": "./packages/core" },
+    { "path": "./packages/playwright-renderer" },
+    { "path": "./packages/figma-script" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/verify" }
   ]
 }
