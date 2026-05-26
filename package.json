@@ -1,0 +1,33 @@
+{
+  "name": "claudedesign-figma-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deterministic bridge that translates ClaudeDesign bundles (JSX+HTML) into Figma files with visual + structural diff verification.",
+  "license": "MIT",
+  "author": "Matheus Perez <matheusvperez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elsePerez/claudedesign-figma-bridge.git"
+  },
+  "homepage": "https://github.com/elsePerez/claudedesign-figma-bridge",
+  "bugs": {
+    "url": "https://github.com/elsePerez/claudedesign-figma-bridge/issues"
+  },
+  "engines": {
+    "node": ">=20.6",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc -b --noEmit",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
