@@ -63,6 +63,13 @@ interface ParentInfo {
   hasAutoLayout: boolean;
   /** Layout direction if hasAutoLayout — "VERTICAL" or "HORIZONTAL". */
   layoutMode: "VERTICAL" | "HORIZONTAL" | null;
+  /**
+   * Whether the parent has an explicit cross-axis alignment (CSS
+   * `align-items` other than default `stretch`). When true, children
+   * should NOT default-FILL on the cross axis — they take their natural
+   * cross size and the parent's alignment centers/anchors them.
+   */
+  hasExplicitCrossAlign: boolean;
   /** Known intrinsic width of the parent (if explicit), used to resolve `right`/`left:50%`. */
   width: number | null;
   /** Known intrinsic height (used to resolve `bottom`). */
@@ -143,10 +150,14 @@ function emitNode(
   }
 
   // Build parentInfo for this node's children
+  const align = strVal(node.style.alignItems);
+  const hasExplicitCrossAlign =
+    align === "center" || align === "flex-end" || align === "baseline" || align === "flex-start";
   const myParentInfo: ParentInfo = {
     var: v,
     hasAutoLayout: sizing.hasAutoLayout,
     layoutMode: sizing.layoutMode,
+    hasExplicitCrossAlign,
     width: sizing.width,
     height: sizing.height,
   };
@@ -477,9 +488,14 @@ function applyPostAppend(
   if (heightStr === "100%") ctx.lines.push(`${v}.layoutSizingVertical = "FILL";`);
 
   // CSS default `align-items: stretch` on auto-layout parent: cross-axis FILL
-  // when this child has no explicit cross-axis dimension. Only do this when
-  // we're not already overriding via layoutGrow or explicit dimensions.
-  if (parentInfo?.hasAutoLayout && !flex) {
+  // when this child has no explicit cross-axis dimension. Skip this entirely
+  // when the parent has an explicit alignItems (center/flex-end/baseline) —
+  // in CSS that overrides stretch, so children take their natural cross size.
+  if (
+    parentInfo?.hasAutoLayout &&
+    !parentInfo.hasExplicitCrossAlign &&
+    !flex
+  ) {
     if (parentInfo.layoutMode === "VERTICAL" && !hasExplicitWidth) {
       ctx.lines.push(`${v}.layoutSizingHorizontal = "FILL";`);
     } else if (parentInfo.layoutMode === "HORIZONTAL" && !hasExplicitHeight) {
@@ -602,7 +618,7 @@ function isStyledTextWrapper(node: IntentNode): boolean {
 function shouldDefaultToVerticalStack(node: IntentNode): boolean {
   if (node.tag !== "div") return false;
   const elementChildren = node.children.filter(c => c.type === "element");
-  if (elementChildren.length < 2) return false;
+  if (elementChildren.length < 1) return false;
   const anyAbsolute = elementChildren.some(c => {
     const p = c.style.position;
     return p && p.kind === "string" && p.value === "absolute";
