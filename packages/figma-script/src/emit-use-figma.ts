@@ -442,12 +442,21 @@ function applyFrameStyle(
     layoutMode = "VERTICAL";
   }
 
-  // When we have auto-layout AND explicit dimensions, pin axes to FIXED.
-  // Without this, the auto-layout will shrink to content (HUG) and explicit
-  // width/height passed via resize() are silently overridden.
-  if (hasAutoLayout && w && h) {
-    ctx.lines.push(`${v}.primaryAxisSizingMode = "FIXED";`);
-    ctx.lines.push(`${v}.counterAxisSizingMode = "FIXED";`);
+  // Sizing modes for auto-layout frames.
+  //   - Default Figma behavior after `layoutMode` is set is FIXED on both
+  //     axes at the current dimensions (100×100 if never resized). That's
+  //     wrong for "no explicit dimension → HUG content" cases, e.g. a
+  //     suggestion card row that wants to wrap to its tallest child.
+  //   - We emit FIXED when a dimension is explicitly given, AUTO (HUG)
+  //     when it isn't. Axis-mapping depends on layoutMode.
+  if (hasAutoLayout) {
+    if (layoutMode === "HORIZONTAL") {
+      ctx.lines.push(`${v}.primaryAxisSizingMode = ${JSON.stringify(w ? "FIXED" : "AUTO")};`);
+      ctx.lines.push(`${v}.counterAxisSizingMode = ${JSON.stringify(h ? "FIXED" : "AUTO")};`);
+    } else {
+      ctx.lines.push(`${v}.primaryAxisSizingMode = ${JSON.stringify(h ? "FIXED" : "AUTO")};`);
+      ctx.lines.push(`${v}.counterAxisSizingMode = ${JSON.stringify(w ? "FIXED" : "AUTO")};`);
+    }
   }
 
   // Alignment
