@@ -3,14 +3,22 @@
  *
  * Deterministic core of the ClaudeDesign ↔ Figma bridge.
  *
- * Modules (planned, populated in subsequent phases):
- *   - jsx-parser      : Babel AST → canonical Artboard tree
- *   - token-resolver  : CSS + Swift + JSX cross-reference, emit drift report
- *   - intent-builder  : Artboard tree + token map → intent.json
- *   - tree-diff       : intent.json vs Figma node tree comparison
- *   - snapshot        : .figma-snapshot.json (screen → page/node mapping)
- *
- * Nothing exported yet — Phase 0 scaffold only.
+ * Phase 1: jsx-parser (this PR) — extract Artboards + normalize Screen trees.
+ * Future phases populate token-resolver, intent-builder, tree-diff, snapshot.
  */
 
 export const VERSION = "0.0.0";
+
+export {
+  parseBundleFile,
+  parseScreen,
+} from "./jsx-parser/index.js";
+
+export type {
+  Artboard,
+  BundleParseResult,
+  ExtractOptions,
+  JsxNode,
+  JsxPropValue,
+  JsxLoc,
+} from "./jsx-parser/index.js";
